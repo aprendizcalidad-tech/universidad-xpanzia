@@ -1,8 +1,9 @@
 const fs=require('fs'),vm=require('vm'),assert=require('node:assert/strict'),crypto=require('crypto'),path=require('path');
 const files=path.join(__dirname,'../google-apps-script');const data={},props={ADMIN_EMAILS:'admin@example.com',ALLOWED_DOMAINS:'example.com'},sent=[];
 const ctx=vm.createContext({console,Utilities:{getUuid:()=>crypto.randomUUID(),DigestAlgorithm:{SHA_256:'sha256'},computeDigest:(_,s)=>Array.from(crypto.createHash('sha256').update(s).digest())},PropertiesService:{getScriptProperties:()=>({getProperty:k=>props[k]||'',setProperty:(k,v)=>props[k]=v})},MailApp:{getRemainingDailyQuota:()=>100,sendEmail:(...a)=>sent.push(a)},Date,Set,JSON,Math,Number,Array,String,Error});
-vm.runInContext(fs.readFileSync(path.join(files,'Code.gs'),'utf8')+'\n'+fs.readFileSync(path.join(files,'Seed.gs'),'utf8'),ctx);
+vm.runInContext(fs.readFileSync(path.join(files,'Code.gs'),'utf8')+'\n'+fs.readFileSync(path.join(files,'Seed.gs'),'utf8')+'\n'+fs.readFileSync(path.join(files,'Campus.gs'),'utf8'),ctx);
 ctx.rows_=t=>structuredClone(Object.values(data[t]||{}));ctx.get_=(t,id)=>structuredClone(data[t]?.[id]);ctx.put_=(t,o)=>{data[t]??={};data[t][o.id]=structuredClone(o);return o;};
+data.Schools=Object.fromEntries(ctx.defaultSchools_().map(s=>[s.id,s]));
 const call=(action,payload={},token)=>ctx.dispatch_({action,payload,token});
 let checks=0;function test(name,fn){fn();checks++;console.log('PASS',name);}
 ctx.put_('Courses',ctx.seedCourse_());ctx.put_('Settings',{id:'main',maxAttempts:5,company:'QA',signer:'GH',portalUrl:'https://example.com/'});

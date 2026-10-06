@@ -9,6 +9,6 @@ const ctx=vm.createContext({SlidesApp:{create:()=>deck,openById:()=>deck,ShapeTy
 vm.runInContext(fs.readFileSync(__dirname+'/../google-apps-script/Certificate.gs','utf8'),ctx);
 ctx.prepararCertificadoPremium();assert.equal(shapes.length,14);
 const c={id:'id',name:'Persona QA',title:'Curso QA',company:'Empresa QA',signer:'Responsable',hours:2,date:'2026-09-29',code:'UC-QA',portalUrl:'https://example.com/',mailStatus:'sent',fileId:'old'};
-ctx.generatePremiumPdf_(c);assert.equal(saved.designVersion,'xpanzia-1');assert.equal(saved.mailStatus,'sent');assert.equal(c.fileId,'pdf');assert(files.get('copy').trashed);assert.equal(shapes.find(s=>s.getTitle()==='uc_name').getValue(),'Persona QA');
+ctx.generatePremiumPdf_(c);assert.equal(saved.designVersion,'xpanzia-2-transparent');assert.equal(saved.mailStatus,'sent');assert.equal(c.fileId,'pdf');assert(files.get('copy').trashed);assert.equal(shapes.find(s=>s.getTitle()==='uc_name').getValue(),'Persona QA');
 fail=true;const failed={...c,fileId:'previous'};assert.throws(()=>ctx.generatePremiumPdf_(failed),/write failed/);assert.equal(failed.fileId,'previous');assert(files.get('pdf').trashed);assert(closed>=3);
 console.log('PASS: Slides template fields, PDF registration, unchanged mail status, temp cleanup and failed-save rollback (mocked Google services).');

@@ -1,11 +1,13 @@
 {
   "name": "universidad-xpanzia",
-  "version": "1.0.0",
+  "version": "3.0.0",
   "private": true,
   "description": "Campus corporativo de Xpanzia Group para GitHub Pages y Google Apps Script",
   "scripts": {
-    "test": "node tests/backend.cjs && node tests/performance.cjs && node tests/certificate-backend.cjs && node tests/identity.cjs",
-    "test:browser": "node tests/browser.cjs && node tests/certificate-browser.cjs"
+    "test": "node tests/backend.cjs && node tests/performance.cjs && node tests/certificate-backend.cjs && node tests/identity.cjs && node tests/admin-v3.cjs",
+    "test:browser": "node tests/browser.cjs && node tests/certificate-browser.cjs && node tests/admin-browser-v3.cjs"
   },
-  "devDependencies": {"playwright": "1.62.1"}
+  "devDependencies": {
+    "playwright": "1.62.1"
+  }
 }

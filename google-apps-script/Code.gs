@@ -29,15 +29,15 @@ function doGet(){return ContentService.createTextOutput(JSON.stringify({ok:true,
 function doPost(e){resetRequest_();let result,changesCatalog=false;const lock=LockService.getScriptLock();try{
  need_(e&&e.postData&&e.postData.contents.length<180000,'Solicitud inválida.');const req=JSON.parse(e.postData.contents);
  if(!['catalog','me','adminData','verifyCertificate','downloadCertificate','bootstrap'].includes(req.action)){if(!lock.tryLock(150)){const busy=Error('Hay otros guardados en curso. Reintentando…');busy.code='BUSY';throw busy;}}
- const affectsCatalog=['saveCourse','saveRoute','saveSettings','saveSchool','deleteSchool'].includes(req.action);if(affectsCatalog){admin_(user_(req.token));changesCatalog=true;invalidateCatalog_();}
+ const affectsCatalog=['saveCourse','saveRoute','saveSettings','saveSchool','deleteSchool','assignCourse','deleteCourse'].includes(req.action);if(affectsCatalog){admin_(user_(req.token));changesCatalog=true;invalidateCatalog_();}
  result={ok:true,data:dispatch_(req)};
  }catch(err){result={ok:false,error:err.message||'No fue posible completar la solicitud.',code:err.code||'ERROR'};}
  finally{if(changesCatalog)invalidateCatalog_();if(lock.hasLock())lock.releaseLock();}
  return ContentService.createTextOutput(JSON.stringify(result)).setMimeType(ContentService.MimeType.JSON);
 }
 function dispatch_(r){const a=r.action,p=r.payload||{};
- if(a==='catalog')return cachedCatalog_();
- if(a==='bootstrap'){const catalog=cachedCatalog_();if(!r.token)return {catalog,me:null};return {catalog,me:dispatch_({...r,action:'me'})};}
+ if(a==='catalog')return assignedCatalog_(r.token);
+ if(a==='bootstrap'){const catalog=assignedCatalog_(r.token);if(!r.token)return {catalog,me:null};return {catalog,me:dispatch_({...r,action:'me'})};}
  if(a==='requestCode'){
   const email=email_(p.email), key=hash_(email), old=get_('Auth',key), day=now_().slice(0,10);
   need_(!old||Date.now()-old.created>60000,'Espera un minuto antes de solicitar otro código.');
@@ -56,6 +56,9 @@ function dispatch_(r){const a=r.action,p=r.payload||{};
  }
  if(a==='verifyCertificate'){const code=txt_(p.code,80).toUpperCase();need_(/^UC-\d{4}-[A-F0-9]{16}$/.test(code),'Ingresa un código de certificado válido.');const c=rows_('Certificates').find(x=>x.code===code);need_(c,'No encontramos este certificado.');return {code:c.code,name:c.name,title:c.title,hours:c.hours,date:c.date,revoked:!!c.revoked,company:c.company};}
  const u=user_(r.token);
+ if(['enroll','completeLesson','submitQuiz'].includes(a))need_(canStudy_(u,get_('Courses',p.courseId)),'Este curso no está asignado a tu cuenta o ya no está disponible.');
+ if(a==='assignCourse'){admin_(u);return assignCourse_(p);}
+ if(a==='deleteCourse'){admin_(u);return deleteCourse_(p);}
  if(a==='logout'){const s=get_('Sessions',hash_(r.token));s.expires=0;put_('Sessions',s);return true;}
  if(a==='me')return {user:u,enrollments:rows_('Enrollments').filter(x=>x.userId===u.id),attempts:rows_('Attempts').filter(x=>x.userId===u.id),certificates:rows_('Certificates').filter(x=>x.userId===u.id)};
  if(a==='saveProfile'){need_(p.consent===true,'Acepta el tratamiento de datos para continuar.');for(const k of ['name','document','company','area','position','city']){need_(txt_(p[k]),'Completa todos los datos del perfil.');u[k]=txt_(p[k],k==='document'?30:150);}u.consentAt=now_();put_('Users',u);return u;}
@@ -71,10 +74,10 @@ function dispatch_(r){const a=r.action,p=r.payload||{};
   if(attempt.passed)ensureCertificates_(u);return attempt;
  }
  if(a==='downloadCertificate'){const c=get_('Certificates',p.id);need_(c&&c.userId===u.id&&!c.revoked,'Certificado no disponible.');if(certificateNeedsPdf_(c))return {pending:true,message:'Tu PDF se está preparando automáticamente. Vuelve a descargarlo en unos minutos.'};const blob=DriveApp.getFileById(c.fileId).getBlob();return {filename:c.code+'.pdf',base64:Utilities.base64Encode(blob.getBytes())};}
- if(a==='adminData'){admin_(u);return {users:rows_('Users'),schools:schools_(),courses:rows_('Courses').map(courseSchool_),routes:rows_('Routes'),enrollments:rows_('Enrollments'),attempts:rows_('Attempts'),certificates:rows_('Certificates'),settings:settings_(),invitations:rows_('Invitations')};}
+ if(a==='adminData'){admin_(u);return {users:rows_('Users'),schools:schools_(),courses:rows_('Courses').filter(c=>!c.deleted).map(courseSchool_),routes:rows_('Routes'),enrollments:rows_('Enrollments'),attempts:rows_('Attempts'),certificates:rows_('Certificates'),settings:settings_(),invitations:rows_('Invitations')};}
  if(a==='saveSchool'){admin_(u);return saveSchool_(p);}
  if(a==='deleteSchool'){admin_(u);return deleteSchool_(p);}
- if(a==='saveCourse'){admin_(u);const c=validateCourse_(p);const old=get_('Courses',c.id);if(old)need_(p.updated===old.updated,'Otra persona actualizó el curso. Recarga antes de guardar.');if(old&&rows_('Enrollments').some(e=>e.courseId===c.id)){need_(JSON.stringify(old.lessons)===JSON.stringify(c.lessons)&&JSON.stringify(old.quiz)===JSON.stringify(c.quiz)&&old.passScore===c.passScore,'Este curso tiene inscripciones. Duplica el curso para cambiar lecciones, preguntas o nota mínima.');}return put_('Courses',c);}
+ if(a==='saveCourse'){admin_(u);const c=validateCourse_(p);const old=get_('Courses',c.id);need_(!old||!old.deleted,'El curso fue eliminado.');c.assignedUserIds=old?.assignedUserIds||[];c.assignmentRevision=old?.assignmentRevision||'';if(old)need_(p.updated===old.updated,'Otra persona actualizó el curso. Recarga antes de guardar.');if(old&&rows_('Enrollments').some(e=>e.courseId===c.id)){need_(sameCourseData_(old.lessons,c.lessons)&&sameCourseData_(old.quiz,c.quiz)&&old.passScore===c.passScore,'Este curso tiene inscripciones. Duplica el curso para cambiar lecciones, preguntas o nota mínima.');}return put_('Courses',c);}
  if(a==='saveRoute'){admin_(u);const ids=[...new Set(p.courseIds||[])];need_(txt_(p.title)&&ids.length,'Indica nombre y cursos de la ruta.');need_(ids.every(id=>get_('Courses',id)),'Hay cursos inexistentes.');const old=get_('Routes',p.id);need_(!old||!rows_('Certificates').some(c=>c.routeId===old.id)||JSON.stringify(old.courseIds)===JSON.stringify(ids),'Esta ruta ya tiene certificados. Crea una nueva para cambiar sus cursos.');const rt=put_('Routes',{id:p.id||uid_(),title:txt_(p.title,150),description:txt_(p.description,1500),courseIds:ids,published:!!p.published});return rt;}
  if(a==='saveSettings'){admin_(u);const url=txt_(p.portalUrl,500);need_(/^https:\/\//.test(url),'La dirección del portal debe comenzar por https://.');need_(+p.maxAttempts>=1&&+p.maxAttempts<=20,'Usa entre 1 y 20 intentos diarios.');return put_('Settings',{id:'main',company:txt_(p.company,150),signer:txt_(p.signer,150),portalUrl:url,privacy:txt_(p.privacy,5000),maxAttempts:Math.floor(+p.maxAttempts)});}
  if(a==='invite'){admin_(u);const emails=String(p.emails||'').split(/[\s,;]+/).filter(Boolean);need_(emails.length<=100,'Invita hasta 100 correos por operación.');emails.forEach(v=>{const email=email_(v);put_('Invitations',{id:hash_(email),email,active:true});});return {count:emails.length};}
@@ -102,7 +105,7 @@ function procesarPendientes(){
    try{
     if(certificateNeedsPdf_(c)){
      // Slides/Drive export is deliberately OUTSIDE the shared write lock.
-     const built=generatePremiumPdf_(c,false);let accepted=false;
+     const built=generatePremiumPdf_(c,false);need_(built&&built.fileId,'Actualiza Certificate.gs con la misma versión de Code.gs. El generador no devolvió el PDF.');let accepted=false;
      const saved=workerWrite_(()=>{const current=get_('Certificates',id);if(!current||current.revoked)return;put_('Certificates',{...current,fileId:built.fileId,designVersion:built.designVersion});accepted=true;});
      if(!saved||!accepted){DriveApp.getFileById(built.fileId).setTrashed(true);continue;}
     }
@@ -110,7 +113,7 @@ function procesarPendientes(){
     if(MailApp.getRemainingDailyQuota()<1)continue;
     // Keep the delivery state and send under a short critical section to avoid a revocation/send race.
     if(!workerWrite_(()=>{const current=get_('Certificates',id);if(!current||current.revoked||current.mailStatus==='sent')return;MailApp.sendEmail({to:current.email,subject:'Xpanzia Group: tu certificado de '+current.title,body:'Hola '+current.name+',\n\nAprobaste '+current.title+'. Adjuntamos tu certificado.\nCódigo: '+current.code+'\nVerificación: '+current.portalUrl.replace(/#.*$/,'')+'#verificar/'+current.code,attachments:[DriveApp.getFileById(current.fileId).getBlob()]});put_('Certificates',{...current,mailStatus:'sent',sentAt:now_(),error:'',nextTry:0});}))break;
-   }catch(err){workerWrite_(()=>{const current=get_('Certificates',id);if(!current||current.revoked)return;const tries=(current.tries||0)+1;put_('Certificates',{...current,mailStatus:current.mailStatus==='sent'?'sent':'error',tries,error:txt_(err.message,1000),nextTry:Date.now()+Math.min(1440,Math.pow(2,tries)*5)*60000});});}
+   }catch(err){console.error('Certificado '+id+': '+(err.message||err));workerWrite_(()=>{const current=get_('Certificates',id);if(!current||current.revoked)return;const tries=(current.tries||0)+1;put_('Certificates',{...current,mailStatus:current.mailStatus==='sent'?'sent':'error',tries,error:txt_(err.message,1000),nextTry:Date.now()+Math.min(1440,Math.pow(2,tries)*5)*60000});});}
   }
   resetRequest_();actualizarReportes_();
   workerWrite_(()=>{for(const name of ['Auth','Sessions']){const t=table_(name);const expired=t.rows.filter(r=>r.expires<Date.now()-86400000).map(r=>t.positions.get(r.id)).sort((a,b)=>b-a);expired.forEach(row=>t.sheet.deleteRow(row));delete requestTables_[name];}});
@@ -140,3 +143,5 @@ function revisarInstalacionXpanzia(){
  console.log('Automatización de certificados: '+(ScriptApp.getProjectTriggers().some(t=>t.getHandlerFunction()==='procesarPendientes')?'CONFIGURADA':'FALTA ejecutar instalarXpanzia'));
  console.log('Cuota de destinatarios de correo restante hoy: '+MailApp.getRemainingDailyQuota());
 }
+
+function sameCourseData_(a,b){const canonical=v=>Array.isArray(v)?v.map(canonical):v&&typeof v==='object'?Object.fromEntries(Object.keys(v).sort().map(k=>[k,canonical(v[k])])):v;return JSON.stringify(canonical(a))===JSON.stringify(canonical(b));}

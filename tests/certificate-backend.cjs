@@ -12,3 +12,5 @@ const c={id:'id',name:'Persona QA',title:'Curso QA',company:'Empresa QA',signer:
 ctx.generatePremiumPdf_(c);assert.equal(saved.designVersion,'xpanzia-2-transparent');assert.equal(saved.mailStatus,'sent');assert.equal(c.fileId,'pdf');assert(files.get('copy').trashed);assert.equal(shapes.find(s=>s.getTitle()==='uc_name').getValue(),'Persona QA');
 fail=true;const failed={...c,fileId:'previous'};assert.throws(()=>ctx.generatePremiumPdf_(failed),/write failed/);assert.equal(failed.fileId,'previous');assert(files.get('pdf').trashed);assert(closed>=3);
 console.log('PASS: Slides template fields, PDF registration, unchanged mail status, temp cleanup and failed-save rollback (mocked Google services).');
+
+fail=false;saved=null;const original={...c,fileId:'previous'};const built=ctx.generatePremiumPdf_(original,false);assert.equal(built.fileId,'pdf');assert.equal(original.fileId,'previous');assert.equal(saved,null);console.log('PASS deferred certificate generation compatible with worker.');
